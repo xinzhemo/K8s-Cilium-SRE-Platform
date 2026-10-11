@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locust
+  namespace: default
+  labels:
+    app: locust
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: locust
+  template:
+    metadata:
+      labels:
+        app: locust
+    spec:
+      containers:
+      - name: locust
+        image: locustio/locust:2.20.0
+        args:
+        - "-f"
+        - "/mnt/locust/locustfile.py"
+        - "--host"
+        - "http://demo-svc.default.svc.cluster.local"
+        ports:
+        - containerPort: 8089
+        volumeMounts:
+        - name: locust-script
+          mountPath: "/mnt/locust"
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 200m
+            memory: 256Mi
+      volumes:
+      - name: locust-script
+        configMap:
+          name: locust-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: locust-svc
+  namespace: default
+spec:
+  selector:
+    app: locust
+  ports:
+  - port: 8089
+    targetPort: 8089
+  type: ClusterIP

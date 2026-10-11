@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: locust-script
+  namespace: default
+data:
+  locustfile.py: |
+    from locust import HttpUser, task, between
+
+    class DemoUser(HttpUser):
+        wait_time = between(0.1, 0.3)
+
+        @task
+        def hit_demo(self):
+            self.client.get("/")

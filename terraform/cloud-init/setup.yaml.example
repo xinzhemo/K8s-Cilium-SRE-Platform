@@ -1,0 +1,224 @@
+#cloud-config
+hostname: k3s-cilium-node
+manage_etc_hosts: true
+
+package_update: true
+packages:
+  - curl
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - wget
+
+write_files:
+  # ---------- K3s 镜像加速 + ACR 认证 ----------
+  - path: /etc/rancher/k3s/registries.yaml
+    permissions: '0644'
+    content: |
+      mirrors:
+        "docker.io":
+          endpoint:
+            - "https://docker.m.daocloud.io"
+        "quay.io":
+          endpoint:
+            - "https://quay.m.daocloud.io"
+        "ghcr.io":
+          endpoint:
+            - "https://ghcr.m.daocloud.io"
+        "registry.k8s.io":
+          endpoint:
+            - "https://registry.m.daocloud.io"
+      configs:
+        "你的ACR实例-vpc.cn-hangzhou.personal.cr.aliyuncs.com":
+          auth:
+            username: "你的ACR用户名"
+            password: "你的ACR密码"
+
+  # ---------- Cilium Helm values ----------
+  - path: /tmp/cilium-values.yaml
+    permissions: '0644'
+    content: |
+      ipam:
+        mode: kubernetes
+      kubeProxyReplacement: "true"
+      k8sServiceHost: 127.0.0.1
+      k8sServicePort: "6443"
+      operator:
+        replicas: 1
+      hubble:
+        relay:
+          enabled: true
+        ui:
+          enabled: true
+      cni:
+        exclusive: false
+
+  # ---------- Prometheus Helm values（镜像走 ACR） ----------
+  - path: /tmp/acr-values.yaml
+    permissions: '0644'
+    content: |
+      grafana:
+        image:
+          registry: "你的ACR实例-vpc.cn-hangzhou.personal.cr.aliyuncs.com"
+          repository: k3s-sre/grafana
+          tag: 13.2.0
+        sidecar:
+          image:
+            registry: "你的ACR实例-vpc.cn-hangzhou.personal.cr.aliyuncs.com"
+            repository: k3s-sre/k8s-sidecar
+            tag: 2.10.1
+        adminPassword: "admin123456"
+      prometheus:
+        prometheusSpec:
+          image:
+            registry: "你的ACR实例-vpc.cn-hangzhou.personal.cr.aliyuncs.com"
+            repository: k3s-sre/prometheus
+            tag: v3.14.0-distroless
+      prometheusOperator:
+        image:
+          registry: "你的ACR实例-vpc.cn-hangzhou.personal.cr.aliyuncs.com"
+          repository: k3s-sre/prometheus-operator
+          tag: v0.93.1
+        admissionWebhooks:
+          patch:
+            image:
+              registry: "你的ACR实例-vpc.cn-hangzhou.personal.cr.aliyuncs.com"
+              repository: k3s-sre/kube-webhook-certgen
+              tag: 1.8.5
+      alertmanager:
+        image:
+          registry: "你的ACR实例-vpc.cn-hangzhou.personal.cr.aliyuncs.com"
+          repository: k3s-sre/alertmanager
+          tag: v0.34.0
+      prometheus-node-exporter:
+        image:
+          registry: "你的ACR实例-vpc.cn-hangzhou.personal.cr.aliyuncs.com"
+          repository: k3s-sre/node-exporter
+          tag: v1.12.1
+      kube-state-metrics:
+        image:
+          registry: "你的ACR实例-vpc.cn-hangzhou.personal.cr.aliyuncs.com"
+          repository: k3s-sre/kube-state-metrics
+          tag: v2.19.1
+
+runcmd:
+  # ---------- 系统准备 ----------
+  - modprobe br_netfilter
+  - modprobe overlay
+  - |
+    cat <<EOF > /etc/modules-load.d/k3s.conf
+    br_netfilter
+    overlay
+    EOF
+  - |
+    cat <<EOF > /etc/sysctl.d/k3s.conf
+    net.bridge.bridge-nf-call-iptables=1
+    net.bridge.bridge-nf-call-ip6tables=1
+    net.ipv4.ip_forward=1
+    EOF
+  - sysctl --system
+
+  # ---------- 安装 K3s（禁用 flannel/kube-proxy/traefik/servicelb） ----------
+  - |
+    curl -sfL https://rancher-mirror.rancher.cn/k3s/k3s-install.sh | \
+    INSTALL_K3S_MIRROR=cn \
+    INSTALL_K3S_VERSION="v1.30.1+k3s1" \
+    INSTALL_K3S_EXEC="server \
+      --flannel-backend=none \
+      --disable-kube-proxy \
+      --disable-network-policy \
+      --disable=traefik \
+      --disable=servicelb \
+      --cluster-cidr=10.42.0.0/16 \
+      --service-cidr=10.43.0.0/16 \
+      --token=${k3s_token}" sh -
+
+  # ---------- 等待 API Server 就绪 ----------
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    for i in $(seq 1 60); do
+      if kubectl get nodes 2>/dev/null | grep -q "k3s-cilium-node"; then
+        echo "K3s API Server is ready"
+        break
+      fi
+      echo "Waiting for K3s API Server... ($i/60)"
+      sleep 5
+    done
+
+  # ---------- 安装 Helm（华为云镜像） ----------
+  - |
+    wget https://mirrors.huaweicloud.com/helm/v3.14.0/helm-v3.14.0-linux-amd64.tar.gz -O /tmp/helm.tar.gz
+    tar -zxvf /tmp/helm.tar.gz -C /tmp
+    mv /tmp/linux-amd64/helm /usr/local/bin/helm
+    chmod +x /usr/local/bin/helm
+
+  # ---------- 从 OSS 下载 Cilium chart ----------
+  - |
+    wget https://k3s-sre-charts.oss-cn-hangzhou-internal.aliyuncs.com/cilium-1.15.1.tgz -O /tmp/cilium-1.15.1.tgz
+    ls -lh /tmp/cilium-1.15.1.tgz
+
+  # ---------- 安装 Cilium 1.15.1 ----------
+  - |
+    helm install cilium /tmp/cilium-1.15.1.tgz \
+      --namespace kube-system \
+      -f /tmp/cilium-values.yaml
+
+  # ---------- 等待 Cilium Agent 就绪 ----------
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    for i in $(seq 1 60); do
+      READY=$(kubectl -n kube-system get pods -l k8s-app=cilium --no-headers 2>/dev/null | grep -c "Running")
+      if [ "$READY" -ge 1 ]; then
+        echo "Cilium Agent is Running"
+        break
+      fi
+      echo "Waiting for Cilium... ($i/60)"
+      sleep 5
+    done
+
+  # ---------- 缓冲 30 秒，等 eBPF 规则完全注入内核 ----------
+  - sleep 30
+
+  # ---------- 打破 CNI 切换竞态：强制重启 CoreDNS ----------
+  - kubectl -n kube-system rollout restart deployment coredns
+
+  # ---------- 从 OSS 下载 Prometheus chart ----------
+  - |
+    wget https://k3s-sre-charts.oss-cn-hangzhou-internal.aliyuncs.com/kube-prometheus-stack-88.4.0.tgz -O /tmp/kube-prometheus-stack-88.4.0.tgz
+    ls -lh /tmp/kube-prometheus-stack-88.4.0.tgz
+
+  # ---------- 安装 Prometheus + Grafana ----------
+  - |
+    helm install monitoring /tmp/kube-prometheus-stack-88.4.0.tgz \
+      --namespace monitoring \
+      --create-namespace \
+      -f /tmp/acr-values.yaml \
+      --set grafana.service.type=NodePort \
+      --set prometheus.service.type=NodePort \
+      --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+      --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+      --set prometheus.prometheusSpec.retention=6h \
+      --timeout 10m
+
+  # ---------- 生成 kubeconfig ----------
+  - mkdir -p /root/.kube /root/.kube/export
+  - cp /etc/rancher/k3s/k3s.yaml /root/.kube/config
+  - chmod 600 /root/.kube/config
+  - |
+    EIP=$(curl -s http://100.100.100.200/latest/meta-data/eipv4)
+    if [ -n "$EIP" ]; then
+      cp /etc/rancher/k3s/k3s.yaml /root/.kube/export/config
+      sed -i "s/127.0.0.1/$EIP/g" /root/.kube/export/config
+      echo "导出版 kubeconfig 已更新为公网 IP: $EIP"
+    fi
+
+  # ---------- 收集证据 ----------
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    kubectl get nodes -o wide > /tmp/cluster-status.txt 2>&1
+    kubectl get pods -A -o wide >> /tmp/cluster-status.txt 2>&1
+    kubectl -n kube-system get pods -l k8s-app=cilium -o wide >> /tmp/cluster-status.txt 2>&1
+    kubectl -n kube-system get svc >> /tmp/cluster-status.txt 2>&1
+    kubectl -n monitoring get pods -o wide >> /tmp/cluster-status.txt 2>&1
+    kubectl -n monitoring get svc >> /tmp/cluster-status.txt 2>&1

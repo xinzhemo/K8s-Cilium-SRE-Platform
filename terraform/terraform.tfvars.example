@@ -1,0 +1,15 @@
+# 阿里云认证（必填）
+access_key = "你的AccessKeyID"
+secret_key = "你的AccessKeySecret"
+
+# SSH 公钥（必填，用于登录 ECS）
+ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2E... your@email.com"
+
+# 地域（可选，默认杭州）
+# region = "cn-hangzhou"
+
+# ECS 规格（可选，默认 2C8G 经济型）
+# instance_type = "ecs.e-c1m4.large"
+
+# K3s Token（可选，有默认值）
+# k3s_token = "自定义一个随机字符串"

@@ -1,0 +1,27 @@
+# 注意：部署前请将 10.43.67.106 替换为 nginx-svc 的实际 ClusterIP
+# 获取方法：kubectl get svc nginx-svc -o jsonpath='{.spec.clusterIP}'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe-clusterip
+  namespace: default
+  labels:
+    app: probe-clusterip
+spec:
+  restartPolicy: Never
+  containers:
+  - name: probe
+    image: busybox:1.36
+    command:
+    - sh
+    - -c
+    - |
+      # nginx-svc 的 ClusterIP
+      while true; do
+        if wget -q -O- --timeout=2 http://10.43.67.106 >/dev/null 2>&1; then
+          echo "$(date +%s) CLUSTERIP OK"
+        else
+          echo "$(date +%s) CLUSTERIP FAIL"
+        fi
+        sleep 5
+      done
