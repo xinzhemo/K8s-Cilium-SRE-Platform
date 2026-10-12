@@ -175,9 +175,9 @@ K8s-Cilium-SRE-Platform/
 
 | # | 方法 | 结果 |
 |---|---|---|
-| 1 | 修改 ConfigMap → Agent 重启 | ❌ 无效 |
-| 2 | `cilium-dbg endpoint regenerate --all` | ❌ 无效 |
-| 3 | 删除并重建 Pod | ❌ 仍然 Disabled |
+| 1 | 修改 ConfigMap → Agent 重启 |  无效 |
+| 2 | `cilium-dbg endpoint regenerate --all` |  无效 |
+| 3 | 删除并重建 Pod |  仍然 Disabled |
 
 ### 推测原因
 
@@ -185,15 +185,11 @@ Cilium 1.15.1 与 K3s 的兼容性问题，或需要在首次安装 Cilium 时�
 
 ### 后续计划
 
-| 方案 | 描述 | 优先级 |
-|---|---|---|
-| 方案 A | 重装 Cilium 并显式指定 `policyEnforcementMode=always` | 高 |
-| 方案 B | 升级 Cilium 到 1.15.5 或 1.16.x | 中 |
-| 方案 C | 多节点环境验证（单节点可能有特殊行为） | 中 |
-
-### 当前状态
-
-三个混沌实验已完成，CiliumNetworkPolicy 零信任隔离验证作为后续扩展项。
+| 方案 | 描述|
+|---|---|
+| 方案 A | 重装 Cilium 并显式指定 `policyEnforcementMode=always` |
+| 方案 B | 升级 Cilium 到 1.15.5 或 1.16.x |
+| 方案 C | 多节点环境验证（单节点可能有特殊行为） |
 
 ---
 
