@@ -17,41 +17,7 @@ K3s + Cilium 云原生网络 SRE 平台 | Terraform + Cloud-init + Cilium eBPF +
 ## 项目架构
 
 ### 系统架构图
-
-```mermaid
-flowchart TB
-    subgraph L4["Layer 4 - SRE 实验层"]
-        CHAOS["Chaos Mesh<br/>故障注入"]
-        LOCUST["Locust<br/>压测"]
-    end
-
-    subgraph L3["Layer 3 - 应用层"]
-        PROM["Prometheus"]
-        GRAF["Grafana"]
-        HUBBLE["Hubble<br/>L7 可观测"]
-    end
-
-    subgraph L2["Layer 2 - 集群初始化层"]
-        K3S["K3s"]
-        CILIUM["Cilium eBPF<br/>禁 flannel / 禁 kube-proxy"]
-        DNS["CoreDNS"]
-    end
-
-    subgraph L1["Layer 1 - 基础设施层"]
-        TF["Terraform"]
-        VPC["VPC / 安全组"]
-        ECS["ECS"]
-    end
-
-    L1 --> L2
-    L2 --> L3
-    L3 --> L4
-
-    style L4 fill:#6b21a830,stroke:#6b21a8
-    style L3 fill:#1d4ed830,stroke:#1d4ed8
-    style L2 fill:#15803d30,stroke:#15803d
-    style L1 fill:#c2410c30,stroke:#c2410c
-```
+![架构图](screenshots/cluster-setup/arch.png)
 
 ### 核心设计决策
 
